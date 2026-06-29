@@ -7,7 +7,9 @@ import Anthropic from '@anthropic-ai/sdk';
 import dotenv from 'dotenv';
 import path from 'node:path';
 import { Buffer } from 'node:buffer';
+import dns from 'node:dns/promises';
 import { fileURLToPath } from 'node:url';
+import net from 'node:net';
 import { TextDecoder } from 'node:util';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -18,6 +20,7 @@ const app = express();
 const port = Number(process.env.PORT) || 3001;
 const clientDistPath = path.resolve(__dirname, '../dist');
 const minArticleTextLength = 80;
+const maxArticleRedirects = 5;
 const requestHeaders = {
   'User-Agent':
     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
@@ -69,23 +72,130 @@ function normalizeArticleUrl(rawUrl: unknown) {
 }
 
 async function fetchArticleHtml(url: string) {
-  const response = await axios.get<ArrayBuffer>(url, {
-    headers: requestHeaders,
-    responseType: 'arraybuffer',
-    timeout: 15000,
-    maxRedirects: 5,
-    maxContentLength: 10 * 1024 * 1024,
-    validateStatus: (status) => status >= 200 && status < 400,
-  });
+  let currentUrl = url;
 
-  const contentType = String(response.headers['content-type'] || '');
-  const html = decodeHtml(Buffer.from(response.data), contentType);
+  for (let redirectCount = 0; redirectCount <= maxArticleRedirects; redirectCount += 1) {
+    await assertPublicArticleUrl(currentUrl);
 
-  if (!/<html|<article|<body/i.test(html)) {
-    throw new Error('Fetched content is not an HTML article page');
+    const response = await axios.get<ArrayBuffer>(currentUrl, {
+      headers: requestHeaders,
+      responseType: 'arraybuffer',
+      timeout: 15000,
+      maxRedirects: 0,
+      maxContentLength: 10 * 1024 * 1024,
+      validateStatus: (status) => status >= 200 && status < 400,
+    });
+
+    if (response.status >= 300 && response.status < 400) {
+      const redirectUrl = response.headers.location;
+      if (!redirectUrl) {
+        throw new Error('Redirect response is missing a location header');
+      }
+
+      currentUrl = normalizeRedirectUrl(redirectUrl, currentUrl);
+      continue;
+    }
+
+    const contentType = String(response.headers['content-type'] || '');
+    const html = decodeHtml(Buffer.from(response.data), contentType);
+
+    if (!/<html|<article|<body/i.test(html)) {
+      throw new Error('Fetched content is not an HTML article page');
+    }
+
+    return html;
   }
 
-  return html;
+  throw new Error('Too many redirects while fetching article');
+}
+
+function normalizeRedirectUrl(rawLocation: string, baseUrl: string) {
+  const redirectUrl = new URL(rawLocation, baseUrl);
+
+  if (!['http:', 'https:'].includes(redirectUrl.protocol)) {
+    throw new Error('Only HTTP and HTTPS redirects are supported');
+  }
+
+  redirectUrl.hash = '';
+  return redirectUrl.toString();
+}
+
+async function assertPublicArticleUrl(url: string) {
+  const parsedUrl = new URL(url);
+  const hostname = parsedUrl.hostname.toLowerCase();
+
+  if (
+    hostname === 'localhost' ||
+    hostname.endsWith('.localhost') ||
+    hostname.endsWith('.local')
+  ) {
+    throw new Error('Local network URLs are not supported');
+  }
+
+  const literalIpVersion = net.isIP(hostname);
+  if (literalIpVersion) {
+    if (isPrivateAddress(hostname, literalIpVersion)) {
+      throw new Error('Private network URLs are not supported');
+    }
+    return;
+  }
+
+  const addresses = await dns.lookup(hostname, { all: true, verbatim: true });
+  if (addresses.length === 0) {
+    throw new Error('Could not resolve URL hostname');
+  }
+
+  if (addresses.some(({ address, family }) => isPrivateAddress(address, family))) {
+    throw new Error('Private network URLs are not supported');
+  }
+}
+
+function isPrivateAddress(address: string, family: number) {
+  if (family === 4) {
+    return isPrivateIpv4(address);
+  }
+
+  if (family === 6) {
+    return isPrivateIpv6(address);
+  }
+
+  return true;
+}
+
+function isPrivateIpv4(address: string) {
+  const octets = address.split('.').map((octet) => Number(octet));
+  if (octets.length !== 4 || octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)) {
+    return true;
+  }
+
+  const first = octets[0]!;
+  const second = octets[1]!;
+  return (
+    first === 0 ||
+    first === 10 ||
+    first === 127 ||
+    (first === 100 && second >= 64 && second <= 127) ||
+    (first === 169 && second === 254) ||
+    (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 && second === 168) ||
+    (first === 192 && second === 0) ||
+    (first === 198 && (second === 18 || second === 19)) ||
+    first >= 224
+  );
+}
+
+function isPrivateIpv6(address: string) {
+  const normalized = address.toLowerCase();
+
+  if (normalized === '::1' || normalized === '::') {
+    return true;
+  }
+
+  if (normalized.startsWith('::ffff:')) {
+    return isPrivateIpv4(normalized.slice(7));
+  }
+
+  return normalized.startsWith('fc') || normalized.startsWith('fd') || normalized.startsWith('fe80:');
 }
 
 async function fetchResolvedArticleHtml(url: string): Promise<ArticleHtmlResult> {
