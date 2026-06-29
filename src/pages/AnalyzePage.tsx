@@ -19,6 +19,7 @@ interface AnalyzePageProps {
   loading: boolean;
   progress: number;
   onExtract: () => void;
+  onCancelExtract: () => void;
   onOpenReader: () => void;
   copy: Translation['analyzePage'];
 }
@@ -42,6 +43,7 @@ export function AnalyzePage({
   loading,
   progress,
   onExtract,
+  onCancelExtract,
   onOpenReader,
   copy,
 }: AnalyzePageProps) {
@@ -87,7 +89,7 @@ export function AnalyzePage({
             </Text>
             <Progress value={progress} color="blue" radius="xl" animated={loading} aria-label={copy.progressLabel(progress)} />
             <Group>
-              <Button variant="default" disabled>
+              <Button variant="default" onClick={onCancelExtract}>
                 {copy.cancel}
               </Button>
               <Button variant="light" onClick={onOpenReader}>

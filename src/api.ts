@@ -1,11 +1,13 @@
 export async function postJson<TResponse, TBody extends Record<string, unknown>>(
   path: `/api/${string}`,
-  body: TBody
+  body: TBody,
+  options: { signal?: AbortSignal } = {}
 ): Promise<TResponse> {
   const response = await fetch(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+    signal: options.signal,
   });
 
   if (!response.ok) {

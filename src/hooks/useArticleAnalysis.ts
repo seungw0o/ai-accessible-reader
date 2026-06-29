@@ -15,6 +15,7 @@ export function useArticleAnalysis({ copy, notify, onComplete }: UseArticleAnaly
   const [articleData, setArticleData] = useState<ArticleData | null>(null);
   const [progress, setProgress] = useState(0);
   const progressTimerRef = useRef<number | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const clearProgressTimer = () => {
     if (progressTimerRef.current !== null) {
@@ -23,13 +24,23 @@ export function useArticleAnalysis({ copy, notify, onComplete }: UseArticleAnaly
     }
   };
 
-  useEffect(() => clearProgressTimer, []);
+  useEffect(
+    () => () => {
+      clearProgressTimer();
+      abortControllerRef.current?.abort();
+    },
+    []
+  );
 
   const extractMutation = useMutation({
     mutationFn: (targetUrl: string) =>
-      postJson<ArticleData, { url: string }>('/api/extract', { url: targetUrl }),
+      postJson<ArticleData, { url: string }>('/api/extract', { url: targetUrl }, {
+        signal: abortControllerRef.current?.signal,
+      }),
     onMutate: () => {
       clearProgressTimer();
+      abortControllerRef.current?.abort();
+      abortControllerRef.current = new AbortController();
       setProgress(8);
       setArticleData(null);
       notify(copy.announcements.extractStart, 'info');
@@ -43,6 +54,7 @@ export function useArticleAnalysis({ copy, notify, onComplete }: UseArticleAnaly
     },
     onSuccess: (data) => {
       clearProgressTimer();
+      abortControllerRef.current = null;
       setArticleData(data);
       setProgress(100);
       const category = data.category || '기타';
@@ -58,9 +70,16 @@ export function useArticleAnalysis({ copy, notify, onComplete }: UseArticleAnaly
       }, 500);
     },
     onError: (error) => {
-      console.error(error);
       clearProgressTimer();
+      abortControllerRef.current = null;
       setProgress(0);
+
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        notify(copy.announcements.extractCanceled, 'info');
+        return;
+      }
+
+      console.error(error);
       notify(copy.announcements.extractFail, 'error');
     },
   });
@@ -70,11 +89,17 @@ export function useArticleAnalysis({ copy, notify, onComplete }: UseArticleAnaly
     extractMutation.mutate(url);
   };
 
+  const handleCancelExtract = () => {
+    if (!extractMutation.isPending) return;
+    abortControllerRef.current?.abort();
+  };
+
   return {
     articleData,
     setArticleData,
     loading: extractMutation.isPending,
     progress,
     handleExtract,
+    handleCancelExtract,
   };
 }

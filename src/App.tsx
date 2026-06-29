@@ -80,7 +80,14 @@ function App() {
   };
 
   const { settings, handleChangeSetting, resetSettings } = useAccessibilitySettings();
-  const { articleData, setArticleData, loading, progress, handleExtract } = useArticleAnalysis({
+  const {
+    articleData,
+    setArticleData,
+    loading,
+    progress,
+    handleExtract,
+    handleCancelExtract,
+  } = useArticleAnalysis({
     copy,
     notify,
     onComplete: () => setActiveView('reader'),
@@ -353,6 +360,7 @@ function App() {
                   loading={loading}
                   progress={progress}
                   onExtract={() => handleExtract(url)}
+                  onCancelExtract={handleCancelExtract}
                   onOpenReader={() => setActiveView('reader')}
                   copy={copy.analyzePage}
                 />

@@ -177,6 +177,7 @@ export const translations = {
       extractStart: "웹페이지 본문 분석을 시작합니다.",
       extractSuccess: (category: string) =>
         `${category} 카테고리의 본문을 성공적으로 가져왔습니다. 읽기 화면으로 전환합니다.`,
+      extractCanceled: "웹페이지 분석을 취소했습니다.",
       extractFail: "본문 추출 및 요약에 실패했습니다. URL을 확인해 주세요.",
       speakStart: "음성 낭독을 시작합니다.",
       speakPause: "음성 낭독을 일시정지합니다.",
@@ -379,6 +380,7 @@ export const translations = {
       extractStart: "Starting webpage analysis.",
       extractSuccess: (category: string) =>
         `Successfully extracted a ${category} article. Moving to the reader.`,
+      extractCanceled: "Webpage analysis was canceled.",
       extractFail:
         "Failed to extract and summarize the article. Please check the URL.",
       speakStart: "Voice reading started.",
