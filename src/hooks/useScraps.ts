@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { ArticleData } from '../types';
 import type { Translation, Language } from '../i18n';
 import type { ToastTone } from '../stores/toastStore';
@@ -10,25 +10,46 @@ type UseScrapsParams = {
   copy: Translation;
   notify: (message: string, tone?: ToastTone) => void;
   onReadScrap: (scrap: ArticleData) => void;
+  userId?: string;
 };
 
-export function useScraps({ articleData, url, language, copy, notify, onReadScrap }: UseScrapsParams) {
-  const [scraps, setScraps] = useState<ArticleData[]>(() => {
+function readScraps(storageKey: string) {
+  try {
+    const saved = localStorage.getItem(storageKey);
+    return saved ? JSON.parse(saved) : [];
+  } catch (error) {
+    console.error(error);
+    return [];
+  }
+}
+
+export function useScraps({ articleData, url, language, copy, notify, onReadScrap, userId }: UseScrapsParams) {
+  const storageKey = useMemo(() => (userId ? `article-scraps:${userId}` : 'article-scraps:guest'), [userId]);
+  const [scraps, setScraps] = useState<ArticleData[]>(() => readScraps(storageKey));
+
+  useEffect(() => {
+    setScraps(readScraps(storageKey));
+  }, [storageKey]);
+
+  useEffect(() => {
     try {
-      const saved = localStorage.getItem('article-scraps');
-      return saved ? JSON.parse(saved) : [];
+      const legacySaved = localStorage.getItem('article-scraps');
+      const hasCurrentSaved = localStorage.getItem(storageKey);
+      if (userId && legacySaved && !hasCurrentSaved) {
+        localStorage.setItem(storageKey, legacySaved);
+        setScraps(JSON.parse(legacySaved));
+      }
     } catch (error) {
       console.error(error);
-      return [];
     }
-  });
+  }, [storageKey, userId]);
 
   const currentArticleUrl = articleData?.url || url;
   const isCurrentScrapped = scraps.some((scrap) => scrap.url === currentArticleUrl);
 
   const saveScraps = (updatedScraps: ArticleData[]) => {
     setScraps(updatedScraps);
-    localStorage.setItem('article-scraps', JSON.stringify(updatedScraps));
+    localStorage.setItem(storageKey, JSON.stringify(updatedScraps));
   };
 
   const handleToggleScrap = () => {
