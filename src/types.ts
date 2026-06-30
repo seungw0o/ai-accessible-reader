@@ -10,6 +10,13 @@ export type ArticleData = {
   date?: string;
 };
 
+export type AuthUser = {
+  id: string;
+  name: string;
+  email: string;
+  createdAt: string;
+};
+
 export type TermExplanation = {
   word: string;
   definition: string;
