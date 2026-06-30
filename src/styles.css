@@ -87,6 +87,10 @@ input {
   color: #64748b;
 }
 
+.auth-card {
+  background: #ffffff;
+}
+
 .sidebar-nav-item {
   width: 100%;
   min-height: 44px;
@@ -188,6 +192,13 @@ input {
   align-self: center;
   background:
     linear-gradient(180deg, #ffffff, #f8fafc);
+  box-shadow: var(--shadow-soft);
+}
+
+.profile-panel {
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(239, 246, 255, 0.82)),
+    #ffffff;
   box-shadow: var(--shadow-soft);
 }
 
