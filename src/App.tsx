@@ -3,6 +3,7 @@ import {
   Badge,
   Box,
   Burger,
+  Button,
   Divider,
   Group,
   Paper,
@@ -23,13 +24,17 @@ import {
   IconHome,
   IconKeyboard,
   IconLanguage,
+  IconLogin,
   IconSparkles,
+  IconUser,
   IconVolume,
 } from '@tabler/icons-react';
 import { AnalyzePage } from './pages/AnalyzePage';
 import { ReaderPage } from './pages/ReaderPage';
 import { AccessibilityPage } from './pages/AccessibilityPage';
 import { ScrapsPage } from './pages/ScrapsPage';
+import { MyPage } from './pages/MyPage';
+import { AuthModal } from './components/AuthModal';
 import { translations, type Language } from './i18n';
 import { useToastStore, type ToastTone } from './stores/toastStore';
 import { useAccessibilitySettings } from './hooks/useAccessibilitySettings';
@@ -37,6 +42,7 @@ import { useArticleAnalysis } from './hooks/useArticleAnalysis';
 import { useSpeechReader } from './hooks/useSpeechReader';
 import { useTermExplanation } from './hooks/useTermExplanation';
 import { useScraps } from './hooks/useScraps';
+import { useAuth } from './hooks/useAuth';
 import type { ArticleData } from './types';
 
 export type { AccessibilitySettings, ArticleData } from './types';
@@ -46,6 +52,7 @@ const navItems = [
   { value: 'reader', icon: IconBook },
   { value: 'accessibility', icon: IconAccessible },
   { value: 'scraps', icon: IconBookmark },
+  { value: 'mypage', icon: IconUser },
 ] as const;
 
 type View = (typeof navItems)[number]['value'];
@@ -64,8 +71,11 @@ function App() {
   });
   const [url, setUrl] = useState('');
   const [ariaAnnounce, setAriaAnnounce] = useState('');
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [pendingAnalyzeUrl, setPendingAnalyzeUrl] = useState('');
   const copy = translations[language];
   const showToast = useToastStore((state) => state.showToast);
+  const auth = useAuth();
 
   const announce = (message: string) => {
     setAriaAnnounce('');
@@ -100,6 +110,7 @@ function App() {
     language,
     copy,
     notify,
+    userId: auth.currentUser?.id,
     onReadScrap: (scrap: ArticleData) => {
       setArticleData(scrap);
       setActiveView('reader');
@@ -121,12 +132,63 @@ function App() {
   };
 
   const goToView = (view: View, message?: string) => {
+    if ((view === 'mypage' || view === 'scraps') && !auth.isAuthenticated) {
+      setAuthModalOpen(true);
+      notify(copy.announcements.authRequired, 'warning');
+      return;
+    }
+
     setActiveView(view);
     setMobileNavOpen(false);
     speech.handleStop(true);
     if (message) {
       announce(message);
     }
+  };
+
+  const handleRequestExtract = () => {
+    if (!auth.isAuthenticated) {
+      setPendingAnalyzeUrl(url);
+      setAuthModalOpen(true);
+      notify(copy.announcements.authRequired, 'warning');
+      return;
+    }
+
+    handleExtract(url);
+  };
+
+  const handleLogin = (email: string, password: string) => {
+    const result = auth.signIn(email, password);
+    if (result.ok) {
+      notify(copy.announcements.loginSuccess, 'success');
+      if (pendingAnalyzeUrl) {
+        handleExtract(pendingAnalyzeUrl);
+        setPendingAnalyzeUrl('');
+      } else {
+        setActiveView('mypage');
+      }
+    }
+    return result;
+  };
+
+  const handleSignUp = (name: string, email: string, password: string) => {
+    const result = auth.signUp(name, email, password);
+    if (result.ok) {
+      notify(copy.announcements.signupSuccess, 'success');
+      if (pendingAnalyzeUrl) {
+        handleExtract(pendingAnalyzeUrl);
+        setPendingAnalyzeUrl('');
+      } else {
+        setActiveView('mypage');
+      }
+    }
+    return result;
+  };
+
+  const handleSignOut = () => {
+    auth.signOut();
+    setActiveView('analyze');
+    notify(copy.announcements.logoutSuccess, 'success');
   };
 
   useEffect(() => {
@@ -264,6 +326,37 @@ function App() {
               </Stack>
             </Paper>
 
+            <Paper p="md" radius="md" withBorder className="auth-card">
+              {auth.currentUser ? (
+                <Stack gap="xs">
+                  <Text size="xs" fw={700} c="dimmed">
+                    {copy.auth.signedInAs}
+                  </Text>
+                  <Text fw={800} lineClamp={1}>
+                    {auth.currentUser.name}
+                  </Text>
+                  <Text size="xs" c="dimmed" lineClamp={1}>
+                    {auth.currentUser.email}
+                  </Text>
+                  <Button size="xs" variant="light" leftSection={<IconUser size={14} />} onClick={() => goToView('mypage')}>
+                    {copy.auth.openMyPage}
+                  </Button>
+                </Stack>
+              ) : (
+                <Stack gap="sm">
+                  <Text size="sm" fw={800}>
+                    {copy.auth.sidebarTitle}
+                  </Text>
+                  <Text size="xs" c="dimmed">
+                    {copy.auth.sidebarDescription}
+                  </Text>
+                  <Button size="xs" leftSection={<IconLogin size={14} />} onClick={() => setAuthModalOpen(true)}>
+                    {copy.auth.openLogin}
+                  </Button>
+                </Stack>
+              )}
+            </Paper>
+
             <Stack component="nav" gap={6} aria-label="주요 메뉴">
               {navItems.map((item) => {
                 const Icon = item.icon;
@@ -359,7 +452,7 @@ function App() {
                   setUrl={setUrl}
                   loading={loading}
                   progress={progress}
-                  onExtract={() => handleExtract(url)}
+                  onExtract={handleRequestExtract}
                   onCancelExtract={handleCancelExtract}
                   onOpenReader={() => setActiveView('reader')}
                   copy={copy.analyzePage}
@@ -415,6 +508,17 @@ function App() {
                   categoryLabels={copy.categories}
                 />
               )}
+              {activeView === 'mypage' && (
+                <MyPage
+                  user={auth.currentUser}
+                  scraps={scraps.scraps}
+                  onOpenAuth={() => setAuthModalOpen(true)}
+                  onSignOut={handleSignOut}
+                  onReadScrap={scraps.handleReadScrap}
+                  onOpenScraps={() => goToView('scraps')}
+                  copy={copy.myPage}
+                />
+              )}
             </Box>
 
             <div className="sr-only" aria-live="assertive" aria-atomic="true">
@@ -442,6 +546,16 @@ function App() {
           </Stack>
         </Box>
       </AppShell.Main>
+      <AuthModal
+        opened={authModalOpen}
+        onClose={() => {
+          setAuthModalOpen(false);
+          setPendingAnalyzeUrl('');
+        }}
+        onLogin={handleLogin}
+        onSignUp={handleSignUp}
+        copy={copy.auth}
+      />
     </AppShell>
   );
 }
